@@ -1,12 +1,14 @@
-from typing import Callable, Tuple
+from typing import Callable
+
+import functools
 
 import haiku as hk
 import jax
 import jax.numpy as jnp
+import jax.nn as jnn
+
 import numpy as np
 from tensorflow_probability.substrates import jax as tfp
-
-from dreamer.rssm import State, Action, Observation
 
 tfd = tfp.distributions
 
@@ -26,22 +28,31 @@ class MeanField(hk.Module):
         self._fixed_stddev = fixed_stddev
 
     def __call__(self):
-        flat_params = jnp.asarray(self._flattened_params)
+        flat_params = jax.tree_map(jnp.ravel, self._flattened_params)
+        flat_params = jnp.concatenate(flat_params)
         mus = hk.get_parameter(
-            'mean_field_mu', (len(self._flattened_params),),
+            'mean_field_mu', (len(flat_params),),
             init=hk.initializers.Constant(flat_params)
         )
         if self._fixed_stddev:
-            stddevs = np.ones_like(flat_params)
+            stddevs = jnp.ones_like(flat_params)
         else:
             stddevs = hk.get_parameter(
-                'mean_field_stddev', (len(self._flattened_params),),
+                'mean_field_stddev', (len(flat_params),),
                 init=hk.initializers.RandomUniform(0, self._stddev)
             )
+        stddevs = jnn.softplus(stddevs) + 1e-3
         return tfd.MultivariateNormalDiag(mus, stddevs)
 
+    @functools.partial(jax.jit, static_argnums=0)
     def unflatten(self, sample):
-        return jax.tree_unflatten(self._tree_def, sample)
+        out = []
+        i = 0
+        for p in self._flattened_params:
+            n = p.size
+            out.append(sample[i:i + n].reshape(p.shape))
+            i += n
+        return jax.tree_unflatten(self._tree_def, out)
 
 
 class BNN(hk.Module):
@@ -59,12 +70,8 @@ class BNN(hk.Module):
         self.prior = MeanField(params, stddev, fixed_stddev=True)
         self._samples = posterior_samples
 
-    def __call__(self, prev_state: State, prev_action: Action,
-                 observation: Observation
-                 ) -> Tuple[Tuple[tfd.MultivariateNormalDiag,
-                                  tfd.MultivariateNormalDiag],
-                            State]:
-        return self._wrap(self.forward)(prev_state, prev_action, observation)
+    def __call__(self, x: jnp.ndarray):
+        return self._wrap(self.forward)(x)
 
     def kl(self):
         return tfd.kl_divergence(self.posterior(), self.prior()).mean()
@@ -73,11 +80,10 @@ class BNN(hk.Module):
         def wrapped(*args, **kwargs):
             # Define a function for v-map
             def apply(key: jnp.ndarray, *args, **kwargs):
-                params = self.posterior.unflatten(
+                sampled_params = self.posterior.unflatten(
                     self.posterior().sample(seed=key)
                 )
-                key = hk.next_rng_key()
-                return f(params, key, *args, **kwargs)
+                return f(sampled_params, *args, **kwargs)
 
             keys = hk.next_rng_keys(self._samples)
             return jax.vmap(lambda key: apply(key, *args, *kwargs), (0,))(keys)
