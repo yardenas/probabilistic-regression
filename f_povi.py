@@ -27,13 +27,13 @@ class FunctionalParticleOptimization:
     # al. (2019) https://arxiv.org/abs/1902.09754.
     predictions, dy_dtheta_vjp = jax.vjp(lambda p: self.net(p, x), particles)
     predictions = jnp.asarray(predictions).transpose((1, 2, 0))
-
     prior = self._prior(x)
+
     def log_joint(predictions):
       dist = tfd.Normal(predictions[:, 0], predictions[:, 1])
       log_likelihood = dist.log_prob(y).mean()
-      log_prior = prior.log_prob(predictions)
-      return log_likelihood + log_prior / x.shape[0]
+      log_prior = prior.log_prob(predictions).mean()
+      return log_likelihood + log_prior
 
     # The predictions are independent of the evidence (a.k.a. normalization
     # factor), so the gradients of the log-posterior equal to those of the
@@ -59,7 +59,7 @@ class FunctionalParticleOptimization:
     predictions = jnp.asarray(predictions).transpose((1, 2, 0))
     mean = predictions.mean(0)
     cov = tfp.stats.cholesky_covariance(predictions)
-    return tfd.MultivariateNormalTril(mean, cov)
+    return tfd.MultivariateNormalTriL(mean, cov)
 
   def predict(self, x):
     pass
