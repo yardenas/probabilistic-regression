@@ -11,28 +11,22 @@ tfd = tfp.distributions
 class FunctionalParticleOptimization:
   def __init__(self, example, n_particles, model):
     net = hk.without_apply_rng(hk.transform(lambda x: model(x)))
-    self.net = net.apply
+    self.net = jax.vmap(net.apply, (0, None))
+    init = jax.vmap(net.init, (0, None))
     seed_sequence = hk.PRNGSequence(666)
-
-    def create_particles():
-      return [
-        net.init(next(seed_sequence), example) for _ in range(n_particles)
-      ]
-
-    self.particles = create_particles()
-    self.priors = create_particles()
+    self.particles = init(jnp.asarray(seed_sequence.take(n_particles)), example)
+    self.priors = init(jnp.asarray(seed_sequence.take(n_particles)), example)
 
   def grad_step(self, x, y):
     self._grad_step(self.particles, x, y)
 
   @functools.partial(jax.jit, static_argnums=0)
   def _grad_step(self, particles, x, y):
-    # vjp_fns allow us to compute the jacobian-transpose times the vector of
-    # the stein operators for each particle. See eq.4 in Wang et al. (2019)
-    # https://arxiv.org/abs/1902.09754.
-    predictions, vjp_fns = zip(*[jax.vjp(lambda p: self.net(p, x), particle)
-                                 for particle in particles])
-    predictions = jnp.asarray(predictions).transpose((0, 2, 1))
+    # dy_dtheta_vjp allow us to compute the jacobian-transpose times the
+    # vector of # the stein operators for each particle. See eq.4 in Wang et
+    # al. (2019) https://arxiv.org/abs/1902.09754.
+    predictions, dy_dtheta_vjp = jax.vjp(lambda p: self.net(p, x), particles)
+    predictions = jnp.asarray(predictions).transpose((1, 2, 0))
 
     def log_joint(predictions):
       dist = tfd.Normal(predictions[:, 0], predictions[:, 1])
@@ -54,11 +48,10 @@ class FunctionalParticleOptimization:
     # Summing along the 'particles axis'.
     # See https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html
     # and eq. 8 in Liu et al. (2016) https://arxiv.org/abs/1608.04471
-    dkxy_dx = kernel_vjp(jnp.ones(kxy.shape))[0].transpose(1, 0, 2)
-    stein_grads = ((jnp.matmul(kxy, log_posterior_grad) + dkxy_dx) /
-                   len(self.particles))
-    return [vjp((grad[..., 0], grad[..., 1]))[0] for
-            vjp, grad in zip(vjp_fns, stein_grads)]
+    dkxy_dx = kernel_vjp(jnp.ones(kxy.shape))[0]
+    stein_grads = ((jnp.matmul(kxy, log_posterior_grad).transpose(1, 0, 2) +
+                    dkxy_dx) / len(self.particles))
+    return dy_dtheta_vjp((stein_grads[..., 0], stein_grads[..., 1]))[0]
 
   def _log_prior(self, x):
     predictions = [self.net(params, x) for params in self.priors]
