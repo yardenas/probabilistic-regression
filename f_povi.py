@@ -54,8 +54,8 @@ class FunctionalParticleOptimization:
     return dy_dtheta_vjp((stein_grads[..., 0], stein_grads[..., 1]))[0]
 
   def _log_prior(self, x):
-    predictions = [self.net(params, x) for params in self.priors]
-    predictions = jnp.asarray(predictions).transpose((0, 2, 1))
+    predictions = self.net(self.priors, x)
+    predictions = jnp.asarray(predictions).transpose((1, 2, 0))
     mean = predictions.mean(0)
     cov = tfp.stats.cholesky_covariance(predictions)
     return tfd.MultivariateNormalTril(mean, cov)
