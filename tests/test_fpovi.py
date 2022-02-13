@@ -16,6 +16,6 @@ class TestFunctionalPovi(unittest.TestCase):
     self.povi = FunctionalParticleOptimization(self.x, self.particles, net)
 
   def test_grad_shape(self):
-    grads = self.povi.grad_step(self.x, self.y)
+    grads = self.povi.update_step(self.x, self.y)
     # Hardcode 2, since 'net' in utils has two paramters.
     self.assertEqual(grads.shape, (self.particles, 2))
