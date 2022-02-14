@@ -12,6 +12,7 @@ tfd = tfp.distributions
 
 
 class FunctionalParticleOptimization:
+
   def __init__(self, example: jnp.ndarray, n_particles: int, model: Callable):
     net = hk.without_apply_rng(hk.transform(lambda x: model(x)))
     self.net = jax.vmap(net.apply, (0, None))
@@ -62,8 +63,9 @@ class FunctionalParticleOptimization:
     # See https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html
     # and eq. 8 in Liu et al. (2016) https://arxiv.org/abs/1608.04471
     dkxy_dx = kernel_vjp(jnp.ones(kxy.shape))[0]
-    stein_grads = ((jnp.matmul(kxy, log_posterior_grad).transpose(1, 0, 2) +
-                    dkxy_dx) / len(self.particles))
+    stein_grads = (
+        (jnp.matmul(kxy, log_posterior_grad).transpose(1, 0, 2) + dkxy_dx) /
+        len(self.particles))
     return dy_dtheta_vjp((stein_grads[..., 0], stein_grads[..., 1]))[0]
 
   def _prior(self, x):
@@ -81,7 +83,7 @@ class FunctionalParticleOptimization:
 
 def rbf_kernel(x, y):
   n_x = x.shape[0]
-  pairwise = ((x[:, None] - y[None]) ** 2).sum(-1)
+  pairwise = ((x[:, None] - y[None])**2).sum(-1)
   bandwidth = jnp.median(pairwise.squeeze())
   bandwidth = 0.5 * bandwidth / jnp.log(n_x + 1)
   bandwidth = jnp.maximum(jax.lax.stop_gradient(bandwidth), 1e-5)

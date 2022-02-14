@@ -14,6 +14,7 @@ tfb = tfp.bijectors
 
 
 class ParamsTree:
+
   def __init__(self, params: hk.Params):
     flat_ps, tree_def = jax.tree_flatten(params)
     self.flattened_params = flat_ps
@@ -31,13 +32,8 @@ class ParamsTree:
 
 
 class MeanField(hk.Module):
-  def __init__(
-      self,
-      name: str,
-      params: hk.Params,
-      stddev=1.0,
-      learnable=True
-  ):
+
+  def __init__(self, name: str, params: hk.Params, stddev=1.0, learnable=True):
     super(MeanField, self).__init__(name)
     self._params_tree = ParamsTree(params)
     self._stddev = stddev
@@ -49,13 +45,11 @@ class MeanField(hk.Module):
   def __call__(self):
     if self._learnable:
       mus = hk.get_parameter(
-        'mean_field_mu', (len(self._flat_params),),
-        init=hk.initializers.Constant(self._flat_params)
-      )
+          'mean_field_mu', (len(self._flat_params),),
+          init=hk.initializers.Constant(self._flat_params))
       stddevs = hk.get_parameter(
-        'mean_field_stddev', (len(self._flat_params),),
-        init=hk.initializers.UniformScaling(self._stddev)
-      )
+          'mean_field_stddev', (len(self._flat_params),),
+          init=hk.initializers.UniformScaling(self._stddev))
       empirical_stddev = self._flat_params.std()
       init = jnp.log(jnp.exp(empirical_stddev) - 1.0)
     else:
@@ -73,6 +67,7 @@ class MeanField(hk.Module):
 
 
 class BNN(hk.Module):
+
   def __init__(self, apply_fn: Callable, params: hk.Params,
                posterior_stddev: float, prior_stddev: float):
     super(BNN, self).__init__()
@@ -93,6 +88,7 @@ class BNN(hk.Module):
 
 
 class BayesByBackprop:
+
   def __init__(self, example: jnp.ndarray, samples: int, model: Callable):
     self.keys = hk.PRNGSequence(jax.random.PRNGKey(42))
     self.samples = samples
@@ -133,8 +129,8 @@ class BayesByBackprop:
       mu, stddev = forward(params, key, x)
       dist = tfd.Normal(mu, stddev)
       log_likelihood = dist.log_prob(y).mean()
-      kl = tfd.kl_divergence(posterior(params, None),
-                             prior(params, None)).mean()
+      kl = tfd.kl_divergence(posterior(params, None), prior(params,
+                                                            None)).mean()
       return -log_likelihood + kl
 
     return jax.grad(elbo)(params)

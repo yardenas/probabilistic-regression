@@ -1,8 +1,8 @@
+import haiku as hk
 import jax.random
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
-import haiku as hk
 from tensorflow_probability.substrates import jax as tfp
 
 import utils
@@ -16,7 +16,7 @@ def load_dataset(x_range, b0, w0, n=150, n_tst=150):
 
   def s(x):
     g = (x - x_range[0]) / (x_range[1] - x_range[0])
-    return 3 * (0.25 + g ** 2.)
+    return 3 * (0.25 + g**2.)
 
   x = (x_range[1] - x_range[0]) * np.random.rand(n) + x_range[0]
   eps = np.random.randn(n) * s(x)
@@ -43,21 +43,24 @@ def plot(x_range, x, y, x_tst, yhats):
     m = np.squeeze(yhat.mean())
     s = np.squeeze(yhat.stddev())
     if i < 15:
-      plt.plot(x_tst,
-               m,
-               'r',
-               label='ensemble means' if i == 0 else None,
-               linewidth=1.)
-      plt.plot(x_tst,
-               m + 2 * s,
-               'g',
-               linewidth=0.5,
-               label='ensemble means + 2 ensemble stdev' if i == 0 else None)
-      plt.plot(x_tst,
-               m - 2 * s,
-               'g',
-               linewidth=0.5,
-               label='ensemble means - 2 ensemble stdev' if i == 0 else None)
+      plt.plot(
+          x_tst,
+          m,
+          'r',
+          label='ensemble means' if i == 0 else None,
+          linewidth=1.)
+      plt.plot(
+          x_tst,
+          m + 3 * s,
+          'g',
+          linewidth=0.5,
+          label='ensemble means + 3 ensemble stdev' if i == 0 else None)
+      plt.plot(
+          x_tst,
+          m - 3 * s,
+          'g',
+          linewidth=0.5,
+          label='ensemble means - 3 ensemble stdev' if i == 0 else None)
     avgm += m
   plt.plot(x_tst, avgm / len(yhats), 'r', label='overall mean', linewidth=4)
   plt.ylim(-2, 20)
@@ -69,10 +72,11 @@ def plot(x_range, x, y, x_tst, yhats):
   ax.spines['left'].set_position(('data', 0))
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
-  plt.legend(loc='center left',
-             fancybox=True,
-             framealpha=0.,
-             bbox_to_anchor=(0.95, 0.5))
+  plt.legend(
+      loc='center left',
+      fancybox=True,
+      framealpha=0.,
+      bbox_to_anchor=(0.95, 0.5))
   plt.tight_layout()
   plt.show()
 
