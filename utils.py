@@ -16,7 +16,7 @@ def net(x, init_stddev=0.001):
   mu = mu.squeeze(-1)
   stddev = stddev.squeeze(-1)
   init_stddev = np.log(np.exp(init_stddev) - 1.0)
-  stddev = jnn.softplus(stddev + init_stddev) + 1e-6
+  stddev = jnn.softplus(stddev + init_stddev) + 1e-4
   return mu, 0.1 * stddev
 
 
