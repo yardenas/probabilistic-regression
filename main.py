@@ -1,13 +1,13 @@
+import functools
+
 import haiku as hk
 import jax.random
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
-import functools
 from tensorflow_probability.substrates import jax as tfp
 
 import utils
-from f_povi import FunctionalParticleOptimization
 from bayes_by_backprop import BayesByBackprop
 
 tfd = tfp.distributions
@@ -94,7 +94,12 @@ def main():
   y, x, x_tst = load_dataset(x_range, b0, w0)
   data = iter(dataset(x, y, batch_size))
   net_fn = functools.partial(
-      utils.net, n_layers=2, n_hidden=50, init_stddev=0.001, sd_scale=0.01)
+      utils.net,
+      n_layers=2,
+      n_hidden=50,
+      init_stddev=1e-7,
+      sd_scale=0.01,
+      sd_max=1.0)
   model = BayesByBackprop(x[:batch_size], 20, net_fn)
   opt = optax.flatten(optax.adam(1e-3))
   keys = hk.PRNGSequence(jax.random.PRNGKey(42))
