@@ -39,8 +39,7 @@ class FunctionalParticleOptimization:
     # vector of # the stein operators for each particle. See eq.4 in Wang et
     # al. (2019) https://arxiv.org/abs/1902.09754.
     predictions, dy_dtheta_vjp = jax.vjp(lambda p: self.net(p, x), particles)
-    # TODO (yarden): batch size as leftmost axis.
-    predictions = jnp.asarray(predictions).transpose(1, 2, 0)
+    predictions = jnp.asarray(predictions).transpose(2, 1, 0)
     prior = self._prior(x)
 
     def log_joint(predictions):
@@ -52,11 +51,8 @@ class FunctionalParticleOptimization:
     # The predictions are independent of the evidence (a.k.a. normalization
     # factor), so the gradients of the log-posterior equal to those of the
     # log-joint.
-    log_posterior_grad = jax.vmap(jax.grad(log_joint))(predictions)
-    # Batch size as leading dimension.
-    log_posterior_grad = log_posterior_grad.transpose(1, 0, 2)
-    tmp_preds = predictions.transpose(1, 0, 2)
-    kxy, kernel_vjp = jax.vjp(lambda x: rbf_kernel(x, tmp_preds), tmp_preds)
+    log_posterior_grad = jax.vmap(jax.grad(log_joint), 1, 1)(predictions)
+    kxy, kernel_vjp = jax.vjp(lambda x: rbf_kernel(x, predictions), predictions)
     # Summing along the 'particles axis'.
     # See https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html
     # and eq. 8 in Liu et al. (2016) https://arxiv.org/abs/1608.04471.
@@ -68,9 +64,9 @@ class FunctionalParticleOptimization:
 
   def _prior(self, x):
     predictions = self.net(self.priors, x)
-    predictions = jnp.asarray(predictions).transpose(1, 2, 0)
-    mean = predictions.mean(0)
-    cov = tfp.stats.cholesky_covariance(predictions)
+    predictions = jnp.asarray(predictions).transpose(2, 1, 0)
+    mean = predictions.mean(1)
+    cov = tfp.stats.cholesky_covariance(predictions, 1)
     return tfd.MultivariateNormalTriL(mean, cov)
 
   @functools.partial(jax.jit, static_argnums=0)
