@@ -6,7 +6,7 @@ import optax
 from tensorflow_probability.substrates import jax as tfp
 
 import utils
-from bayes_by_backprop import BayesByBackprop
+from f_povi import FunctionalParticleOptimization
 
 tfd = tfp.distributions
 
@@ -88,8 +88,8 @@ def main():
   batch_size = 32
   y, x, x_tst = load_dataset(x_range, b0, w0)
   data = iter(dataset(x, y, batch_size))
-  model = BayesByBackprop(x[:batch_size], 20, utils.net)
-  opt = optax.flatten(optax.adam(0.01))
+  model = FunctionalParticleOptimization(x[:batch_size], 20, utils.net)
+  opt = optax.flatten(optax.adam(0.005))
   keys = hk.PRNGSequence(jax.random.PRNGKey(42))
 
   @jax.jit
