@@ -126,12 +126,13 @@ class BayesByBackprop:
     forward, posterior, prior = self.bnn
 
     def elbo(params):
-      mu, stddev = forward(params, key, x)
-      dist = tfd.Normal(mu, stddev)
+      keys = jnp.asarray(jax.random.split(key, self.samples))
+      mu, raw_stddev = jax.vmap(lambda key: forward(params, key, x))(keys)
+      dist = tfd.Normal(mu, utils.get_stddev(raw_stddev))
       log_likelihood = dist.log_prob(y).mean()
       kl = tfd.kl_divergence(posterior(params, None), prior(params,
                                                             None)).mean()
-      return -log_likelihood + kl
+      return -log_likelihood + kl * 1.0 / x.shape[0]
 
     return jax.grad(elbo)(params)
 
@@ -142,5 +143,5 @@ class BayesByBackprop:
   def _predict(self, keys, params, x):
     forward, *_ = self.bnn
     forward = jax.vmap(functools.partial(forward, params, x=x))
-    mus, stddevs = forward(jnp.asarray(keys))
-    return utils.to_list_preds(mus, stddevs)
+    mus, raw_stddevs = forward(jnp.asarray(keys))
+    return utils.to_list_preds(mus, utils.get_stddev(raw_stddevs))

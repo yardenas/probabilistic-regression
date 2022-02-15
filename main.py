@@ -3,10 +3,12 @@ import jax.random
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
+import functools
 from tensorflow_probability.substrates import jax as tfp
 
 import utils
 from f_povi import FunctionalParticleOptimization
+from bayes_by_backprop import BayesByBackprop
 
 tfd = tfp.distributions
 
@@ -20,11 +22,18 @@ def load_dataset(x_range, b0, w0, n=150, n_tst=150):
 
   x = (x_range[1] - x_range[0]) * np.random.rand(n) + x_range[0]
   eps = np.random.randn(n) * s(x)
-  y = (w0 * x * (1. + np.sin(x)) + b0) + eps
-  x = x[..., np.newaxis]
+  y = (w0 * x * (1 + np.sin(x)) + b0) + eps
+  y = (y - y.mean()) / y.std()
+  xm, xs = x.mean(), x.std()
+  x = x[..., None]
   x_tst = np.linspace(*x_range, num=n_tst).astype(np.float32)
-  x_tst = x_tst[..., np.newaxis]
-  return y, x, x_tst
+  x_tst = x_tst[..., None]
+
+  def normalize(x):
+    return (x - xm) / xs
+
+  return (y.astype(np.float32), normalize(x).astype(np.float32),
+          normalize(x_tst).astype(np.float32))
 
 
 def dataset(x, y, batch_size):
@@ -34,10 +43,9 @@ def dataset(x, y, batch_size):
     yield x[ids], y[ids]
 
 
-def plot(x_range, x, y, x_tst, yhats):
+def plot(x, y, x_tst, yhats):
   plt.figure(figsize=[12, 3.0])  # inches
   plt.plot(x, y, 'b.', label='observed')
-
   avgm = np.zeros_like(x_tst[..., 0])
   for i, yhat in enumerate(yhats):
     m = np.squeeze(yhat.mean())
@@ -63,9 +71,6 @@ def plot(x_range, x, y, x_tst, yhats):
           label='ensemble means - 3 ensemble stdev' if i == 0 else None)
     avgm += m
   plt.plot(x_tst, avgm / len(yhats), 'r', label='overall mean', linewidth=4)
-  plt.ylim(-2, 20)
-  plt.yticks(np.linspace(0, 15, 4)[1:])
-  plt.xticks(np.linspace(*x_range, num=9))
   ax = plt.gca()
   ax.xaxis.set_ticks_position('bottom')
   ax.yaxis.set_ticks_position('left')
@@ -83,13 +88,15 @@ def plot(x_range, x, y, x_tst, yhats):
 
 def main():
   w0 = 0.125
-  b0 = 5.
+  b0 = 0.
   x_range = [-20, 60]
   batch_size = 32
   y, x, x_tst = load_dataset(x_range, b0, w0)
   data = iter(dataset(x, y, batch_size))
-  model = FunctionalParticleOptimization(x[:batch_size], 20, utils.net)
-  opt = optax.flatten(optax.adam(0.005))
+  net_fn = functools.partial(
+      utils.net, n_layers=2, n_hidden=50, init_stddev=0.001, sd_scale=0.01)
+  model = BayesByBackprop(x[:batch_size], 20, net_fn)
+  opt = optax.flatten(optax.adam(1e-3))
   keys = hk.PRNGSequence(jax.random.PRNGKey(42))
 
   @jax.jit
@@ -101,11 +108,11 @@ def main():
 
   opt_state = opt.init(model.params)
 
-  for step in range(100000):
+  for step in range(20000):
     model.params, opt_state = update(*next(data), model.params, next(keys),
                                      opt_state)
   yhats = model.predict(x_tst)
-  plot(x_range, x, y, x_tst, yhats)
+  plot(x, y, x_tst, yhats)
 
 
 if __name__ == '__main__':
