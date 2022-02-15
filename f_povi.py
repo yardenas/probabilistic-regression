@@ -39,7 +39,8 @@ class FunctionalParticleOptimization:
     # vector of # the stein operators for each particle. See eq.4 in Wang et
     # al. (2019) https://arxiv.org/abs/1902.09754.
     predictions, dy_dtheta_vjp = jax.vjp(lambda p: self.net(p, x), particles)
-    predictions = jnp.asarray(predictions).transpose((1, 2, 0))
+    # TODO (yarden): batch size as leftmost axis.
+    predictions = jnp.asarray(predictions).transpose(1, 2, 0)
     prior = self._prior(x)
 
     def log_joint(predictions):
@@ -53,24 +54,21 @@ class FunctionalParticleOptimization:
     # log-joint.
     log_posterior_grad = jax.vmap(jax.grad(log_joint))(predictions)
     # Batch size as leading dimension.
-    log_posterior_grad = log_posterior_grad.transpose((1, 0, 2))
-
-    def kernel(predictions):
-      return rbf_kernel(predictions, jax.lax.stop_gradient(predictions))
-
-    kxy, kernel_vjp = jax.vjp(kernel, predictions)
+    log_posterior_grad = log_posterior_grad.transpose(1, 0, 2)
+    tmp_preds = predictions.transpose(1, 0, 2)
+    kxy, kernel_vjp = jax.vjp(lambda x: rbf_kernel(x, tmp_preds), tmp_preds)
     # Summing along the 'particles axis'.
     # See https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html
-    # and eq. 8 in Liu et al. (2016) https://arxiv.org/abs/1608.04471
-    dkxy_dx = kernel_vjp(jnp.ones(kxy.shape))[0]
-    stein_grads = (
-        (jnp.matmul(kxy, log_posterior_grad).transpose(1, 0, 2) + dkxy_dx) /
-        len(self.particles))
-    return dy_dtheta_vjp((stein_grads[..., 0], stein_grads[..., 1]))[0]
+    # and eq. 8 in Liu et al. (2016) https://arxiv.org/abs/1608.04471.
+    dkxy_dx = kernel_vjp(-jnp.ones(kxy.shape))[0]
+    stein_grads = ((jnp.matmul(kxy, log_posterior_grad) + dkxy_dx) /
+                   len(self.particles))
+    stein_grads = stein_grads.transpose(1, 0, 2)
+    return dy_dtheta_vjp((-stein_grads[..., 0], -stein_grads[..., 1]))[0]
 
   def _prior(self, x):
     predictions = self.net(self.priors, x)
-    predictions = jnp.asarray(predictions).transpose((1, 2, 0))
+    predictions = jnp.asarray(predictions).transpose(1, 2, 0)
     mean = predictions.mean(0)
     cov = tfp.stats.cholesky_covariance(predictions)
     return tfd.MultivariateNormalTriL(mean, cov)
@@ -81,12 +79,18 @@ class FunctionalParticleOptimization:
     return utils.to_list_preds(mus, stddevs)
 
 
+# Based on tf-probability implementation of batched pairwise matrices:
+# https://github.com/tensorflow/probability/blob
+# /f3777158691787d3658b5e80883fe1a933d48989/tensorflow_probability/python
+# /math/psd_kernels/internal/util.py#L190
 def rbf_kernel(x, y):
-  n_x = x.shape[0]
-  pairwise = ((x[:, None] - y[None])**2).sum(-1)
-  bandwidth = jnp.median(pairwise.squeeze())
+  row_norm_x = (x**2).sum(-1)[..., None]
+  row_norm_y = (y**2).sum(-1)[..., None, :]
+  pairwise = row_norm_x + row_norm_y - 2. * jnp.matmul(x, y.transpose(0, 2, 1))
+  jnp.clip(pairwise, 0., pairwise)
+  n_x = pairwise.shape[-2]
+  bandwidth = jnp.median(pairwise)
   bandwidth = 0.5 * bandwidth / jnp.log(n_x + 1)
   bandwidth = jnp.maximum(jax.lax.stop_gradient(bandwidth), 1e-5)
   k_xy = jnp.exp(-pairwise / bandwidth / 2)
-  # Transpose to put the batch size as the leading axis.
-  return k_xy.transpose()
+  return k_xy
