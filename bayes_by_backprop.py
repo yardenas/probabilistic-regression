@@ -89,15 +89,17 @@ class BNN(hk.Module):
 
 class BayesByBackprop:
 
-  def __init__(self, example: jnp.ndarray, samples: int, model: Callable):
+  def __init__(self, example: jnp.ndarray, samples: int, model: Callable,
+               posterior_stddev=1.0, prior_stddev=1.0, beta=0.5e-1):
     self.keys = hk.PRNGSequence(jax.random.PRNGKey(42))
     self.samples = samples
     init_key = next(self.keys)
+    self._beta = beta
 
     def bayes_net():
       net = hk.without_apply_rng(hk.transform(lambda x: model(x)))
       model_params = net.init(init_key, example)
-      bayes_net_ = BNN(net.apply, model_params, 1.0, 1.0)
+      bayes_net_ = BNN(net.apply, model_params, posterior_stddev, prior_stddev)
 
       def init():
         return bayes_net_.posterior(), bayes_net_.prior()
@@ -132,7 +134,7 @@ class BayesByBackprop:
       log_likelihood = dist.log_prob(y).mean()
       kl = tfd.kl_divergence(posterior(params, None), prior(params,
                                                             None)).mean()
-      return -log_likelihood + kl * 1.0 / x.shape[0]
+      return -log_likelihood + kl * self._beta / x.shape[0]
 
     return jax.grad(elbo)(params)
 
