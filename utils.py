@@ -9,15 +9,30 @@ from tensorflow_probability.substrates import jax as tfp
 tfd = tfp.distributions
 
 
-def net(x, init_stddev=0.1):
-  init = hk.initializers.VarianceScaling(1.0, "fan_avg", "uniform")
-  x = hk.nets.MLP((2,), w_init=init)(x)
-  mu, stddev = jnp.split(x, 2, -1)
-  mu = mu.squeeze(-1)
-  stddev = stddev.squeeze(-1)
-  init_stddev = np.log(np.exp(init_stddev) - 1.0)
-  stddev = jnn.softplus(1e-3 * stddev + init_stddev) + 1e-4
-  return mu, stddev
+def inv_softplus(x):
+  if x > 20:
+    return x
+  return np.log(np.exp(x) - 1.)
+
+
+get_stddev = jnn.softplus
+
+
+def net(x,
+        activation=jnn.relu,
+        n_layers=0,
+        n_hidden=50,
+        init_stddev=0.1,
+        sd_min=1e-4,
+        sd_max=1e10,
+        sd_scale=1.0):
+  init = hk.initializers.VarianceScaling(1.0, "fan_in", "normal")
+  layers = [n_hidden] * n_layers + [2]
+  x = hk.nets.MLP(tuple(layers), activation=activation, w_init=init)(x)
+  mu, raw_stddev = jnp.split(x, 2, -1)
+  raw_stddev = jnp.clip((raw_stddev + inv_softplus(init_stddev)) * sd_scale,
+                        *map(inv_softplus, (sd_min, sd_max)))
+  return mu.squeeze(-1), raw_stddev.squeeze(-1)
 
 
 def to_list_preds(mus, stddevs):
